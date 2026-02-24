@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.env
+beauty_agent_data/journal.jsonl
+beauty_agent_data/profile.json

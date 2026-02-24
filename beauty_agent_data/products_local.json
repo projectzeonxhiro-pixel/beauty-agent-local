@@ -1,0 +1,245 @@
+[
+  {
+    "id": "c01",
+    "name": "低刺激ジェル洗顔A",
+    "category": "洗顔",
+    "price_jpy": 1200,
+    "months_last": 1.5,
+    "fragrance_free": true,
+    "alcohol_free": true,
+    "skin_types": [
+      "乾燥",
+      "敏感",
+      "混合"
+    ],
+    "good_for": [
+      "乾燥",
+      "赤み"
+    ],
+    "avoid_if": [],
+    "notes": "朝夜使いやすい低刺激寄り",
+    "tags": [
+      "低刺激",
+      "ジェル",
+      "毎日"
+    ]
+  },
+  {
+    "id": "c02",
+    "name": "さっぱり泡洗顔B",
+    "category": "洗顔",
+    "price_jpy": 900,
+    "months_last": 1.2,
+    "fragrance_free": true,
+    "alcohol_free": true,
+    "skin_types": [
+      "脂性",
+      "混合"
+    ],
+    "good_for": [
+      "ベタつき"
+    ],
+    "avoid_if": [
+      "赤み"
+    ],
+    "notes": "皮脂が気になる日に向く",
+    "tags": [
+      "泡",
+      "さっぱり"
+    ]
+  },
+  {
+    "id": "t01",
+    "name": "しっとり化粧水A",
+    "category": "化粧水",
+    "price_jpy": 1500,
+    "months_last": 1.2,
+    "fragrance_free": true,
+    "alcohol_free": true,
+    "skin_types": [
+      "乾燥",
+      "敏感",
+      "混合"
+    ],
+    "good_for": [
+      "乾燥",
+      "赤み"
+    ],
+    "avoid_if": [],
+    "notes": "刺激が少ない前提のシンプル保湿",
+    "tags": [
+      "保湿",
+      "シンプル"
+    ]
+  },
+  {
+    "id": "t02",
+    "name": "軽め化粧水B",
+    "category": "化粧水",
+    "price_jpy": 1200,
+    "months_last": 1.2,
+    "fragrance_free": true,
+    "alcohol_free": true,
+    "skin_types": [
+      "脂性",
+      "混合"
+    ],
+    "good_for": [
+      "ベタつき"
+    ],
+    "avoid_if": [],
+    "notes": "ベタつきやすい人向けの軽い使用感想定",
+    "tags": [
+      "軽め",
+      "さっぱり"
+    ]
+  },
+  {
+    "id": "s01",
+    "name": "保湿美容液A",
+    "category": "美容液",
+    "price_jpy": 2200,
+    "months_last": 1.5,
+    "fragrance_free": true,
+    "alcohol_free": true,
+    "skin_types": [
+      "乾燥",
+      "敏感",
+      "混合"
+    ],
+    "good_for": [
+      "乾燥",
+      "赤み"
+    ],
+    "avoid_if": [],
+    "notes": "保湿寄りの毎日使い想定",
+    "tags": [
+      "保湿",
+      "毎日"
+    ]
+  },
+  {
+    "id": "s02",
+    "name": "整肌美容液B（軽め）",
+    "category": "美容液",
+    "price_jpy": 2500,
+    "months_last": 1.5,
+    "fragrance_free": true,
+    "alcohol_free": true,
+    "skin_types": [
+      "脂性",
+      "混合"
+    ],
+    "good_for": [
+      "ベタつき",
+      "毛穴目立ち"
+    ],
+    "avoid_if": [
+      "赤み"
+    ],
+    "notes": "刺激が出やすい人は様子見",
+    "tags": [
+      "整肌",
+      "軽め"
+    ]
+  },
+  {
+    "id": "m01",
+    "name": "軽い乳液A",
+    "category": "乳液",
+    "price_jpy": 1600,
+    "months_last": 1.5,
+    "fragrance_free": true,
+    "alcohol_free": true,
+    "skin_types": [
+      "混合",
+      "脂性",
+      "乾燥"
+    ],
+    "good_for": [
+      "ベタつき",
+      "乾燥"
+    ],
+    "avoid_if": [],
+    "notes": "量で調整しやすい",
+    "tags": [
+      "軽い",
+      "調整しやすい"
+    ]
+  },
+  {
+    "id": "m02",
+    "name": "保湿クリームA",
+    "category": "クリーム",
+    "price_jpy": 1800,
+    "months_last": 2.0,
+    "fragrance_free": true,
+    "alcohol_free": true,
+    "skin_types": [
+      "乾燥",
+      "敏感",
+      "混合"
+    ],
+    "good_for": [
+      "乾燥",
+      "赤み"
+    ],
+    "avoid_if": [
+      "ベタつき"
+    ],
+    "notes": "乾燥部位中心の使用向け",
+    "tags": [
+      "高保湿",
+      "夜向け"
+    ]
+  },
+  {
+    "id": "u01",
+    "name": "低刺激UVミルクA",
+    "category": "日焼け止め",
+    "price_jpy": 1900,
+    "months_last": 1.0,
+    "fragrance_free": true,
+    "alcohol_free": true,
+    "skin_types": [
+      "敏感",
+      "乾燥",
+      "混合"
+    ],
+    "good_for": [
+      "赤み",
+      "乾燥"
+    ],
+    "avoid_if": [],
+    "notes": "低刺激寄りの想定",
+    "tags": [
+      "UV",
+      "低刺激"
+    ]
+  },
+  {
+    "id": "u02",
+    "name": "軽いUVジェルB",
+    "category": "日焼け止め",
+    "price_jpy": 1400,
+    "months_last": 1.0,
+    "fragrance_free": true,
+    "alcohol_free": false,
+    "skin_types": [
+      "脂性",
+      "混合"
+    ],
+    "good_for": [
+      "ベタつき"
+    ],
+    "avoid_if": [
+      "赤み",
+      "乾燥"
+    ],
+    "notes": "軽い使用感優先。乾燥・赤み時は注意",
+    "tags": [
+      "UV",
+      "軽い"
+    ]
+  }
+]
