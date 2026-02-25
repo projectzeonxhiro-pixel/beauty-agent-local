@@ -2,12 +2,13 @@ import streamlit as st
 import json
 import re
 from pathlib import Path
-from datetime import datetime
+from datetime import date, datetime
 from collections import Counter
+from statistics import mean
 
-# =========================
+# =========================================================
 # 基本設定
-# =========================
+# =========================================================
 st.set_page_config(
     page_title="Beauty Agent Local",
     page_icon="💄",
@@ -15,1206 +16,1256 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-BASE_DIR = Path(".")
-DATA_DIR = BASE_DIR / "beauty_agent_data"
+DATA_DIR = Path("beauty_agent_data")
 DATA_DIR.mkdir(exist_ok=True)
-DIARY_FILE = DATA_DIR / "skin_diary.json"
+
+DIARY_FILE = DATA_DIR / "diary_entries.json"
 PRODUCTS_FILE = DATA_DIR / "products_local.json"
 
-
-# =========================
-# データ入出力
-# =========================
+# =========================================================
+# データ永続化
+# =========================================================
 def load_json(path: Path, default):
+    if not path.exists():
+        return default
     try:
-        if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
     except Exception:
-        pass
-    return default
-
+        return default
 
 def save_json(path: Path, data):
-    path.parent.mkdir(exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+def ensure_products_db():
+    if PRODUCTS_FILE.exists():
+        return
+    # ローカル簡易DB（サンプル名）
+    sample_products = [
+        {
+            "name": "モイストバランス化粧水 A",
+            "category": "化粧水",
+            "price": 1400,
+            "skin_types": ["乾燥", "混合", "敏感", "普通"],
+            "concerns": ["乾燥", "赤み"],
+            "fragrance": "無香料",
+            "features": ["保湿", "低刺激", "毎日使いやすい"],
+            "keywords": ["glycerin", "hyaluronic acid", "panthenol"],
+            "description": "保湿重視のベーシック化粧水。ゆらぎやすい日に使いやすい設計。",
+        },
+        {
+            "name": "スージングエッセンス B",
+            "category": "美容液",
+            "price": 2200,
+            "skin_types": ["敏感", "混合", "普通"],
+            "concerns": ["赤み", "乾燥"],
+            "fragrance": "無香料",
+            "features": ["整肌", "しっとり", "夜向け"],
+            "keywords": ["niacinamide", "allantoin", "centella"],
+            "description": "赤みが気になる時の整肌サポート向け。保湿とバランスを両立。",
+        },
+        {
+            "name": "ライトジェルローション C",
+            "category": "乳液",
+            "price": 1600,
+            "skin_types": ["脂性", "混合", "普通"],
+            "concerns": ["ベタつき", "毛穴"],
+            "fragrance": "無香料",
+            "features": ["軽い使用感", "ベタつきにくい", "朝向け"],
+            "keywords": ["niacinamide", "zinc", "glycerin"],
+            "description": "さっぱり系の保湿。朝のメイク前にも使いやすい軽さ。",
+        },
+        {
+            "name": "バリアクリーム D",
+            "category": "クリーム",
+            "price": 2400,
+            "skin_types": ["乾燥", "敏感", "普通"],
+            "concerns": ["乾燥", "赤み"],
+            "fragrance": "無香料",
+            "features": ["バリア感", "夜向け", "乾燥対策"],
+            "keywords": ["ceramide", "cholesterol", "squalane"],
+            "description": "乾燥しやすい時期の仕上げ保湿に。夜の保護ケア向け。",
+        },
+        {
+            "name": "クリアケア美容液 E",
+            "category": "美容液",
+            "price": 2800,
+            "skin_types": ["脂性", "混合", "普通"],
+            "concerns": ["毛穴", "ベタつき"],
+            "fragrance": "無香料",
+            "features": ["毛穴ケア", "なめらか", "部分使いしやすい"],
+            "keywords": ["niacinamide", "bha", "salicylic acid"],
+            "description": "ベタつき・毛穴が気になる時の部分ケア向け。頻度調整推奨。",
+        },
+        {
+            "name": "ミルククレンザー F",
+            "category": "クレンジング",
+            "price": 1800,
+            "skin_types": ["乾燥", "敏感", "普通", "混合"],
+            "concerns": ["乾燥", "赤み"],
+            "fragrance": "無香料",
+            "features": ["やさしい洗浄", "しっとり", "摩擦を抑えやすい"],
+            "keywords": ["mild surfactant", "glycerin"],
+            "description": "メイクが軽い日に向くやさしめクレンジング。",
+        },
+        {
+            "name": "ジェルクレンザー G",
+            "category": "洗顔",
+            "price": 1200,
+            "skin_types": ["脂性", "混合", "普通"],
+            "concerns": ["ベタつき", "毛穴"],
+            "fragrance": "無香料",
+            "features": ["すっきり", "朝夜使いやすい", "軽い泡立ち"],
+            "keywords": ["mild surfactant", "zinc"],
+            "description": "余分な皮脂感を落としつつ乾燥しにくいバランス型。",
+        },
+        {
+            "name": "UVミルク H",
+            "category": "日焼け止め",
+            "price": 2100,
+            "skin_types": ["敏感", "乾燥", "混合", "普通"],
+            "concerns": ["赤み", "乾燥"],
+            "fragrance": "無香料",
+            "features": ["日中保護", "毎日向け", "しっとり"],
+            "keywords": ["uv", "ceramide", "glycerin"],
+            "description": "日中の保護重視。乾燥しやすい肌にも使いやすい想定。",
+        },
+        {
+            "name": "ノンフレグランス保湿ミスト I",
+            "category": "ミスト",
+            "price": 1300,
+            "skin_types": ["乾燥", "混合", "敏感", "普通"],
+            "concerns": ["乾燥", "赤み"],
+            "fragrance": "無香料",
+            "features": ["手軽", "持ち運び", "メイク上からOK"],
+            "keywords": ["panthenol", "glycerin", "allantoin"],
+            "description": "外出先の乾燥対策に使いやすい保湿ミスト。",
+        },
+        {
+            "name": "バランス化粧水 J（微香）",
+            "category": "化粧水",
+            "price": 1500,
+            "skin_types": ["普通", "混合"],
+            "concerns": ["ベタつき", "乾燥"],
+            "fragrance": "香りあり",
+            "features": ["リフレッシュ感", "軽め", "朝向け"],
+            "keywords": ["glycerin", "niacinamide"],
+            "description": "香りを楽しみたい方向けの軽め保湿。",
+        },
+    ]
+    save_json(PRODUCTS_FILE, sample_products)
 
-# =========================
-# 見た目（女性向け・上品系）
-# =========================
+ensure_products_db()
+
+# =========================================================
+# UIスタイル（女性向け・上品）
+# =========================================================
 def inject_ui_style():
-    st.markdown(
-        """
-<style>
-:root{
-  --bg:#0f1017;
-  --panel:#171a24;
-  --panel2:#1f2330;
-  --soft:#252a39;
-  --line:#2b3143;
-  --txt:#f4f6fb;
-  --muted:#b6bfd4;
-  --pink:#ff5c8a;
-  --pink2:#ff7aa4;
-  --rose:#ffb8cc;
-  --lav:#c9b7ff;
-  --mint:#9fe3d4;
-  --warn:#ffc36b;
-}
+    st.markdown("""
+    <style>
+    :root{
+      --bg: #070b16;
+      --bg2:#0c1224;
+      --panel: rgba(255,255,255,0.05);
+      --panel-strong: rgba(255,255,255,0.08);
+      --stroke: rgba(255,255,255,0.10);
+      --text: #F5F7FB;
+      --muted: #B8BED0;
+      --accent: #FF5D8F;
+      --accent2:#B36BFF;
+      --shadow: 0 18px 45px rgba(0,0,0,.35);
+    }
 
-html, body, [class*="css"] {
-  font-family: "Inter", "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
-}
+    .stApp {
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 12% 8%, rgba(255,93,143,0.12), transparent 60%),
+        radial-gradient(1000px 540px at 88% 12%, rgba(179,107,255,0.12), transparent 60%),
+        radial-gradient(900px 500px at 50% 95%, rgba(58,123,255,0.08), transparent 65%),
+        linear-gradient(180deg, #060913 0%, #070b16 45%, #060a14 100%);
+    }
 
-.stApp {
-  background:
-    radial-gradient(1000px 500px at 90% -10%, rgba(255, 92, 138, 0.12), transparent 60%),
-    radial-gradient(900px 450px at -10% 10%, rgba(201, 183, 255, 0.10), transparent 55%),
-    linear-gradient(180deg, #0e1018 0%, #0b0d14 100%);
-  color: var(--txt);
-}
+    header[data-testid="stHeader"] { background: rgba(0,0,0,0); }
+    [data-testid="stDecoration"] { display:none; }
 
-[data-testid="stSidebar"] {
-  background: linear-gradient(180deg, #171926 0%, #131522 100%);
-  border-right: 1px solid rgba(255,255,255,0.06);
-}
+    .block-container{
+      padding-top: 1rem;
+      padding-bottom: 2rem;
+      max-width: 1320px;
+    }
 
-[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
-[data-testid="stSidebar"] label,
-[data-testid="stSidebar"] .stSelectbox label,
-[data-testid="stSidebar"] .stMultiSelect label {
-  color: var(--txt);
-}
+    section[data-testid="stSidebar"]{
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02)),
+        linear-gradient(180deg, #0A0F1C 0%, #0A1020 100%);
+      border-right: 1px solid rgba(255,255,255,0.06);
+    }
 
-.block-container{
-  padding-top: 1.2rem;
-  padding-bottom: 2rem;
-  max-width: 1200px;
-}
+    .side-card{
+      background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 20px;
+      padding: 16px 16px 14px;
+      box-shadow: 0 14px 35px rgba(0,0,0,.28);
+      margin-bottom: 14px;
+    }
+    .side-card-title{
+      font-size: 1.05rem;
+      font-weight: 800;
+      margin-bottom: .25rem;
+      letter-spacing: .01em;
+    }
+    .side-card-sub{
+      color: #B8BED0;
+      font-size: .86rem;
+      line-height: 1.4;
+    }
 
-.hero-card{
-  background:
-    linear-gradient(135deg, rgba(255,92,138,0.10), rgba(201,183,255,0.10)),
-    rgba(22,24,34,0.75);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 22px;
-  padding: 22px 24px;
-  box-shadow: 0 10px 35px rgba(0,0,0,0.28);
-  margin-bottom: 14px;
-}
+    div[data-baseweb="select"] > div,
+    .stTextArea textarea,
+    .stTextInput input,
+    div[data-testid="stNumberInput"] input,
+    input[type="date"] {
+      background: rgba(8,12,24,.75) !important;
+      border: 1px solid rgba(255,255,255,0.10) !important;
+      border-radius: 14px !important;
+      color: #F4F7FF !important;
+    }
 
-.hero-badge{
-  display:inline-block;
-  font-size: 12px;
-  color:#ffe4ec;
-  background: rgba(255,92,138,0.18);
-  border: 1px solid rgba(255,122,164,0.35);
-  padding: 4px 10px;
-  border-radius: 999px;
-  margin-bottom: 10px;
-}
+    .stTextArea textarea::placeholder,
+    .stTextInput input::placeholder {
+      color: #9AA3BC !important;
+    }
 
-.hero-title{
-  font-weight: 800;
-  font-size: 40px;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-  margin: 6px 0 10px;
-  color: #ffffff;
-}
+    span[data-baseweb="tag"]{
+      background: rgba(255,255,255,0.08) !important;
+      border: 1px solid rgba(255,255,255,0.08) !important;
+      border-radius: 999px !important;
+      color: #F4F7FF !important;
+    }
 
-.hero-sub{
-  color: var(--muted);
-  font-size: 15px;
-  margin-bottom: 8px;
-}
+    div[data-testid="stNumberInput"] button{
+      border-radius: 12px !important;
+      border: 1px solid rgba(255,255,255,.10) !important;
+      background: rgba(255,255,255,.04) !important;
+      color: white !important;
+    }
 
-.chips{
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-  margin-top:8px;
-}
-.chip{
-  display:inline-block;
-  background: rgba(255,255,255,0.04);
-  border:1px solid rgba(255,255,255,0.08);
-  color:#dfe5f6;
-  padding:6px 10px;
-  border-radius:999px;
-  font-size:12px;
-}
+    .stSlider [data-baseweb="slider"] > div > div {
+      background: linear-gradient(90deg, rgba(255,93,143,.95), rgba(179,107,255,.95)) !important;
+    }
+    .stSlider [role="slider"]{
+      border: 2px solid white !important;
+      box-shadow: 0 0 0 6px rgba(255,93,143,.12);
+    }
 
-/* セクションカード */
-.section-card{
-  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.015));
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 18px;
-  padding: 18px;
-  margin-bottom: 12px;
-  box-shadow: 0 8px 25px rgba(0,0,0,0.18);
-}
-.section-title{
-  font-size: 28px;
-  font-weight: 800;
-  line-height: 1.2;
-  margin-bottom: 6px;
-}
-.section-desc{
-  color: var(--muted);
-  font-size: 14px;
-  margin-bottom: 10px;
-}
+    .stButton > button{
+      border-radius: 14px !important;
+      border: 1px solid rgba(255,255,255,.10) !important;
+      background: linear-gradient(135deg, #FF5D8F 0%, #FF4D78 45%, #B36BFF 100%) !important;
+      color: white !important;
+      font-weight: 800 !important;
+      padding: 0.72rem 1rem !important;
+      box-shadow: 0 10px 24px rgba(255,93,143,.22);
+      transition: all .15s ease;
+    }
+    .stButton > button:hover{
+      transform: translateY(-1px);
+      filter: brightness(1.05);
+      box-shadow: 0 14px 28px rgba(255,93,143,.28);
+    }
 
-/* Tabs */
-.stTabs [data-baseweb="tab-list"]{
-  gap: 8px;
-  background: rgba(255,255,255,0.02);
-  border: 1px solid rgba(255,255,255,0.05);
-  padding: 8px;
-  border-radius: 14px;
-}
-.stTabs [data-baseweb="tab"]{
-  height: 42px;
-  border-radius: 10px;
-  color: #dce2f3;
-  padding: 0 14px;
-  font-weight: 600;
-  background: transparent;
-}
-.stTabs [aria-selected="true"]{
-  background: linear-gradient(135deg, rgba(255,92,138,0.18), rgba(201,183,255,0.16)) !important;
-  border: 1px solid rgba(255,122,164,0.25) !important;
-  color: #fff !important;
-}
+    .stTabs [data-baseweb="tab-list"]{
+      gap: 8px;
+      background: rgba(255,255,255,.02);
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 16px;
+      padding: 6px;
+    }
+    .stTabs [data-baseweb="tab"]{
+      height: 44px;
+      border-radius: 12px;
+      color: #DDE3F4;
+      font-weight: 700;
+      padding: 0 14px;
+    }
+    .stTabs [aria-selected="true"]{
+      background: linear-gradient(135deg, rgba(255,93,143,.16), rgba(179,107,255,.14)) !important;
+      border: 1px solid rgba(255,255,255,.10) !important;
+      color: #FFFFFF !important;
+    }
 
-/* 入力系 */
-.stTextArea textarea,
-.stTextInput input,
-.stNumberInput input{
-  background: #171b27 !important;
-  border: 1px solid rgba(255,255,255,0.08) !important;
-  color: #f4f6fb !important;
-  border-radius: 12px !important;
-}
-.stSelectbox > div > div,
-.stMultiSelect > div > div{
-  background: #171b27 !important;
-  border: 1px solid rgba(255,255,255,0.08) !important;
-  border-radius: 12px !important;
-}
-.stSlider [data-baseweb="slider"]{
-  padding-top: .2rem;
-}
+    .hero-card{
+      position: relative;
+      overflow: hidden;
+      padding: 24px 28px;
+      border-radius: 26px;
+      background:
+        radial-gradient(380px 180px at 10% 10%, rgba(255,93,143,.18), transparent 70%),
+        radial-gradient(420px 200px at 90% 15%, rgba(179,107,255,.16), transparent 75%),
+        linear-gradient(135deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+      border: 1px solid rgba(255,255,255,.08);
+      box-shadow: 0 18px 44px rgba(0,0,0,.30);
+      margin-bottom: 16px;
+    }
 
-/* ボタン */
-.stButton > button, .stDownloadButton > button {
-  background: linear-gradient(135deg, var(--pink), var(--pink2)) !important;
-  color: white !important;
-  border: none !important;
-  border-radius: 12px !important;
-  font-weight: 700 !important;
-  padding: 0.55rem 1rem !important;
-  box-shadow: 0 10px 25px rgba(255,92,138,0.26);
-}
-.stButton > button:hover {
-  filter: brightness(1.04);
-  transform: translateY(-1px);
-}
+    .hero-badge{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:6px 12px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(255,93,143,.10);
+      color:#FFD8E6;
+      font-weight:700;
+      font-size:.83rem;
+      margin-bottom:10px;
+    }
 
-/* secondary風ボタン（横並び時の2個目以降も少し馴染ませる） */
-.secondary-btn{
-  background: rgba(255,255,255,0.04);
-  border:1px solid rgba(255,255,255,0.08);
-  color:#e9edf8;
-  padding:10px 12px;
-  border-radius:12px;
-}
+    .hero-title{
+      font-size: clamp(1.8rem, 2.8vw, 3rem);
+      line-height: 1.08;
+      font-weight: 900;
+      margin: 0 0 10px 0;
+      letter-spacing:-.015em;
+    }
 
-/* metric card */
-.metric-card{
-  background: rgba(255,255,255,0.03);
-  border:1px solid rgba(255,255,255,0.06);
-  border-radius:16px;
-  padding:14px;
-  min-height: 92px;
-}
-.metric-label{
-  color: var(--muted);
-  font-size: 13px;
-  margin-bottom: 6px;
-}
-.metric-value{
-  font-weight: 800;
-  font-size: 24px;
-}
-.metric-sub{
-  color: #d7dded;
-  font-size: 12px;
-  margin-top: 4px;
-}
+    .hero-sub{
+      color: #C7CEE0;
+      font-size: .96rem;
+      line-height: 1.6;
+      margin-bottom: 12px;
+    }
 
-/* result / alert */
-.result-box{
-  background: linear-gradient(180deg, rgba(255,92,138,0.07), rgba(255,92,138,0.03));
-  border: 1px solid rgba(255,122,164,0.22);
-  border-radius: 14px;
-  padding: 14px 16px;
-  margin-top: 10px;
-}
-.note-box{
-  background: rgba(159,227,212,0.06);
-  border: 1px solid rgba(159,227,212,0.20);
-  border-radius: 14px;
-  padding: 12px 14px;
-}
-.warn-box{
-  background: rgba(255,195,107,0.06);
-  border:1px solid rgba(255,195,107,0.24);
-  border-radius:14px;
-  padding: 12px 14px;
-}
-.soft-line{
-  border-top:1px solid rgba(255,255,255,0.06);
-  margin: 12px 0;
-}
+    .chip-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+    .chip{
+      border-radius:999px;
+      padding:8px 12px;
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.08);
+      color:#EDEFFD;
+      font-weight:600;
+      font-size:.86rem;
+    }
 
-/* diary list card */
-.diary-card{
-  background: rgba(255,255,255,0.025);
-  border:1px solid rgba(255,255,255,0.07);
-  border-radius: 14px;
-  padding: 12px;
-  margin-bottom: 10px;
-}
-.diary-date{
-  font-weight:700;
-  margin-bottom:6px;
-}
-.diary-meta{
-  color: var(--muted);
-  font-size: 13px;
-  margin-bottom: 6px;
-}
-.diary-tags{
-  display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;
-}
-.diary-tag{
-  font-size:12px;
-  border-radius:999px;
-  padding:4px 8px;
-  background: rgba(201,183,255,0.08);
-  border:1px solid rgba(201,183,255,0.18);
-}
+    .metric-card{
+      padding: 18px 20px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.02));
+      border: 1px solid rgba(255,255,255,.07);
+      box-shadow: 0 14px 28px rgba(0,0,0,.18);
+      min-height: 124px;
+      margin-bottom: 8px;
+    }
+    .metric-label{
+      color: #B8BED0;
+      font-weight: 700;
+      font-size: .9rem;
+      margin-bottom: 8px;
+    }
+    .metric-value{
+      font-size: 2rem;
+      line-height:1.1;
+      font-weight: 900;
+      letter-spacing:-.02em;
+      margin-bottom: 6px;
+    }
+    .metric-foot{
+      color:#C7CEE0;
+      font-size:.86rem;
+    }
 
-/* product card */
-.product-card{
-  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
-  border:1px solid rgba(255,255,255,0.07);
-  border-radius: 16px;
-  padding: 14px;
-  height: 100%;
-}
-.product-name{
-  font-weight: 700;
-  font-size: 16px;
-  margin-bottom: 6px;
-}
-.product-meta{
-  color: var(--muted);
-  font-size: 13px;
-  margin-bottom: 8px;
-}
-.product-reason{
-  font-size: 13px;
-  color: #e6ebf7;
-}
+    .section-card{
+      padding: 20px 22px;
+      border-radius: 20px;
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.02));
+      border: 1px solid rgba(255,255,255,.07);
+      box-shadow: 0 12px 24px rgba(0,0,0,.16);
+      margin-top: 14px;
+      margin-bottom: 12px;
+    }
+    .section-title{
+      font-size: 1.95rem;
+      font-weight: 900;
+      letter-spacing:-.02em;
+      margin: 0 0 8px 0;
+      line-height:1.15;
+    }
+    .section-sub{
+      color: #B8BED0;
+      margin-bottom: 12px;
+      line-height:1.55;
+      font-size:.95rem;
+    }
 
-/* Sidebar profile title */
-.sidebar-card{
-  background: rgba(255,255,255,0.03);
-  border:1px solid rgba(255,255,255,0.06);
-  border-radius:16px;
-  padding: 12px 12px 4px;
-  margin-bottom: 12px;
-}
-.sidebar-title{
-  font-weight: 800;
-  font-size: 18px;
-  margin-bottom: 8px;
-}
-.sidebar-desc{
-  color: var(--muted);
-  font-size: 12px;
-  margin-bottom: 6px;
-}
-</style>
-        """,
-        unsafe_allow_html=True,
-    )
+    .result-card{
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+      padding: 14px 16px;
+      margin: 10px 0;
+    }
+    .result-title{
+      font-size: 1rem;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
 
+    .soft-note{
+      color:#C7CEE0;
+      font-size:.9rem;
+      line-height:1.55;
+    }
 
-# =========================
-# ルールベース成分チェック
-# =========================
-FRAGRANCE_WORDS = {
-    "fragrance", "parfum", "perfume", "香料"
-}
-ALLERGEN_WORDS = {
-    "limonene", "linalool", "citral", "geraniol", "citronellol",
-    "eugenol", "farnesol", "benzyl alcohol", "benzyl salicylate",
-    "hexyl cinnamal", "coumarin", "精油"
-}
-DRYING_ALCOHOLS = {
-    "alcohol", "ethanol", "sd alcohol", "isopropyl alcohol", "変性アルコール"
-}
-ACTIVES_GOOD = {
-    "niacinamide": "ナイアシンアミド（肌荒れ・皮脂バランス・透明感ケアで人気）",
-    "glycerin": "グリセリン（保湿の基本成分）",
-    "ceramide": "セラミド（バリアサポート）",
-    "hyaluronic acid": "ヒアルロン酸（保水）",
-    "panthenol": "パンテノール（整肌）",
-    "allantoin": "アラントイン（整肌）",
-    "cica": "CICA系（整肌）",
-    "centella asiatica": "ツボクサエキス（整肌）",
-    "salicylic acid": "サリチル酸（角質・毛穴ケア）",
-    "azelaic acid": "アゼライン酸（肌荒れ・皮脂ケアで注目）",
-    "retinol": "レチノール（夜のエイジングケアで人気）",
-    "vitamin c": "ビタミンC系（透明感・毛穴ケア）",
-    "ascorbic": "ビタミンC誘導体系の可能性"
-}
+    .product-card{
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.02));
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 10px 20px rgba(0,0,0,.14);
+    }
+    .product-name{
+      font-size: 1.02rem;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+    .product-meta{
+      color:#C7CEE0;
+      font-size:.88rem;
+      margin-bottom: 8px;
+    }
+    .pill{
+      display:inline-block;
+      margin: 2px 6px 2px 0;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      font-size: .82rem;
+      color:#E8ECFA;
+    }
 
+    div[data-testid="stAlert"]{
+      border-radius: 16px !important;
+      border: 1px solid rgba(255,255,255,.08) !important;
+      background: rgba(255,255,255,.03) !important;
+    }
+
+    @media (max-width: 900px){
+      .hero-card { padding: 18px 16px; border-radius: 20px; }
+      .hero-title { font-size: 2rem; }
+      .metric-card { min-height: 110px; }
+      .section-title { font-size: 1.55rem; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# =========================================================
+# UIヘルパー
+# =========================================================
+def ui_hero(profile_summary: dict):
+    skin = profile_summary.get("skin_type", "未設定")
+    concerns = profile_summary.get("concerns", [])
+    concerns_txt = "・".join(concerns) if concerns else "未設定"
+    fragrance = profile_summary.get("fragrance", "未設定")
+    budget = int(profile_summary.get("budget", 5000))
+    am_min = int(profile_summary.get("am_min", 3))
+    pm_min = int(profile_summary.get("pm_min", 10))
+
+    st.markdown(f"""
+    <div class="hero-card">
+      <div class="hero-badge">💄 streamlitApp・ローカル保存対応</div>
+      <div class="hero-title">Beauty Agent Local<br>女性向けセルフケアWeb版</div>
+      <div class="hero-sub">
+        API不要 / ローカル保存 / 成分チェック・肌日記・傾向・ルーティン・症状別テンプレ・ローカル商品提案
+      </div>
+      <div class="chip-row">
+        <div class="chip">肌タイプ: {skin}</div>
+        <div class="chip">悩み: {concerns_txt}</div>
+        <div class="chip">香り: {fragrance}</div>
+        <div class="chip">予算: ¥{budget:,}</div>
+        <div class="chip">朝 {am_min}分 / 夜 {pm_min}分</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def ui_metric_card(label: str, value: str, foot: str = ""):
+    st.markdown(f"""
+    <div class="metric-card">
+      <div class="metric-label">{label}</div>
+      <div class="metric-value">{value}</div>
+      <div class="metric-foot">{foot}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def ui_section_start(title: str, subtitle: str = ""):
+    st.markdown(f"""
+    <div class="section-card">
+      <div class="section-title">{title}</div>
+      <div class="section-sub">{subtitle}</div>
+    """, unsafe_allow_html=True)
+
+def ui_section_end():
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# =========================================================
+# ドメインロジック
+# =========================================================
+def normalize_text(s: str) -> str:
+    return s.strip().lower()
 
 def parse_ingredients(text: str):
     if not text:
         return []
-    # カンマ、改行、スラッシュ、全角読点などで分割
-    parts = re.split(r"[,，/\n]+", text)
-    items = [p.strip() for p in parts if p.strip()]
-    return items
+    parts = re.split(r"[,、\n;/]+", text)
+    cleaned = [p.strip() for p in parts if p.strip()]
+    return cleaned
 
+def ingredient_check(ingredient_list):
+    lower = [normalize_text(x) for x in ingredient_list]
 
-def ingredient_check(text: str):
-    items = parse_ingredients(text)
-    normalized = [i.lower() for i in items]
-
-    detected = []
-    cautions = []
-    good_points = []
-
-    # 検出カテゴリ
-    found_fragrance = any(any(w in x for w in FRAGRANCE_WORDS) for x in normalized)
-    found_allergen = any(any(w in x for w in ALLERGEN_WORDS) for x in normalized)
-    found_alcohol = any(any(w in x for w in DRYING_ALCOHOLS) for x in normalized)
-
-    if found_allergen:
-        detected.append("香料アレルゲン（精油由来含む）")
-        cautions.append("香料/香料アレルゲンの可能性。敏感な方はパッチテスト推奨。")
-    if found_fragrance and "香料アレルゲン（精油由来含む）" not in detected:
-        detected.append("香料")
-        cautions.append("香り付き製品の可能性。赤みが出やすい時は無香料を優先。")
-    if found_alcohol:
-        detected.append("乾燥しやすいアルコール")
-        cautions.append("乾燥・しみやすさがある時は刺激になりやすい可能性。")
-
-    for key, jp in ACTIVES_GOOD.items():
-        if any(key in x for x in normalized):
-            good_points.append(jp)
-
-    # 注意レベル（簡易）
-    level_score = len(detected)
-    if level_score >= 3:
-        level = "高"
-        level_color = "#ff9b9b"
-    elif level_score == 2:
-        level = "中"
-        level_color = "#ffd58a"
-    else:
-        level = "低"
-        level_color = "#a4f0cf"
-
-    return {
-        "items": items,
-        "detected": detected,
-        "cautions": cautions,
-        "good_points": list(dict.fromkeys(good_points)),
-        "level": level,
-        "level_color": level_color,
+    patterns = {
+        "香料": ["fragrance", "parfum", "perfume", "aroma"],
+        "香料アレルゲン（精油由来含む）": [
+            "limonene", "linalool", "citral", "citronellol", "geraniol", "eugenol",
+            "farnesol", "coumarin", "hexyl cinnamal", "benzyl alcohol",
+            "alpha-isomethyl ionone", "hydroxycitronellal"
+        ],
+        "乾燥しやすいアルコール": ["alcohol denat", "ethanol", "sd alcohol", "isopropyl alcohol"],
+        "整肌・保湿サポート成分": [
+            "glycerin", "butylene glycol", "bg", "panthenol", "allantoin",
+            "centella", "madecassoside", "ceramide", "hyaluronic acid", "sodium hyaluronate", "squalane"
+        ],
+        "注目成分（目的ケア系）": [
+            "niacinamide", "retinol", "retinal", "salicylic acid", "bha",
+            "azelaic", "tranexamic", "ascorbic", "vitamin c"
+        ],
     }
 
+    hits = {k: [] for k in patterns.keys()}
+    for ing in ingredient_list:
+        ing_l = normalize_text(ing)
+        for category, keys in patterns.items():
+            for kw in keys:
+                if kw in ing_l:
+                    hits[category].append(ing)
+                    break
 
-# =========================
-# 日記
-# =========================
-def load_diaries():
+    # 重複除去
+    hits = {k: list(dict.fromkeys(v)) for k, v in hits.items()}
+
+    notes = []
+    if hits["香料"] or hits["香料アレルゲン（精油由来含む）"]:
+        notes.append("香料/香料アレルゲンの可能性。敏感な方はパッチテスト推奨。")
+    if hits["乾燥しやすいアルコール"]:
+        notes.append("乾燥しやすい時期・赤みが出やすい時は使用感を見て頻度調整。")
+    if not notes:
+        notes.append("大きな注意カテゴリは少なめ（ルールベース判定）。最終判断は製品ラベル・メーカー情報を優先。")
+
+    summary_categories = [k for k, v in hits.items() if v]
+    return {
+        "summary_categories": summary_categories,
+        "hits": hits,
+        "notes": notes,
+    }
+
+def load_diary_entries():
     data = load_json(DIARY_FILE, [])
+    # 保険: list 以外を弾く
     return data if isinstance(data, list) else []
 
+def add_diary_entry(entry: dict):
+    entries = load_diary_entries()
+    entries.append(entry)
+    # 日付順に並べる（新しい順）
+    entries.sort(key=lambda x: x.get("date", ""), reverse=True)
+    save_json(DIARY_FILE, entries)
 
-def save_diary(entry: dict):
-    diaries = load_diaries()
-    diaries.insert(0, entry)  # 新しい順
-    save_json(DIARY_FILE, diaries)
+def delete_diary_entry(index: int):
+    entries = load_diary_entries()
+    if 0 <= index < len(entries):
+        entries.pop(index)
+        save_json(DIARY_FILE, entries)
 
-
-def summarize_diary(diaries):
-    if not diaries:
+def build_trend_summary(entries):
+    if not entries:
         return {
-            "count": 0,
-            "avg_sleep": None,
-            "avg_stress": None,
-            "top_symptoms": [],
-            "message": "日記データはまだありません。"
+            "count": 0, "avg_sleep": None, "avg_stress": None,
+            "top_symptoms": [], "flags": [], "timeline": []
         }
 
-    sleep_vals = [d.get("sleep_hours") for d in diaries if isinstance(d.get("sleep_hours"), (int, float))]
-    stress_vals = [d.get("stress") for d in diaries if isinstance(d.get("stress"), (int, float))]
+    sleeps = [e.get("sleep_hours") for e in entries if isinstance(e.get("sleep_hours"), (int, float))]
+    stresses = [e.get("stress") for e in entries if isinstance(e.get("stress"), (int, float))]
 
     symptom_counter = Counter()
-    for d in diaries:
-        for s in d.get("symptoms", []):
+    timeline = []
+    for e in sorted(entries, key=lambda x: x.get("date", "")):
+        for s in e.get("symptoms", []):
             symptom_counter[s] += 1
+        timeline.append({
+            "date": e.get("date"),
+            "sleep": e.get("sleep_hours"),
+            "stress": e.get("stress"),
+        })
 
-    avg_sleep = round(sum(sleep_vals) / len(sleep_vals), 1) if sleep_vals else None
-    avg_stress = round(sum(stress_vals) / len(stress_vals), 1) if stress_vals else None
+    avg_sleep = round(mean(sleeps), 1) if sleeps else None
+    avg_stress = round(mean(stresses), 1) if stresses else None
     top_symptoms = symptom_counter.most_common(5)
 
+    flags = []
+    if avg_sleep is not None and avg_sleep < 6:
+        flags.append("睡眠が短め傾向。乾燥・赤み・くすみが気になる日は睡眠優先で。")
+    if avg_stress is not None and avg_stress >= 4:
+        flags.append("ストレス高め傾向。刺激の少ないシンプルケア中心が安全。")
+    if symptom_counter.get("赤み", 0) >= 2:
+        flags.append("赤み記録が複数回。香料・角質ケア・摩擦の頻度を見直すと◎。")
+    if symptom_counter.get("乾燥", 0) >= 2:
+        flags.append("乾燥記録が複数回。洗いすぎと保湿の量/タイミングを見直すと◎。")
+    if symptom_counter.get("ベタつき", 0) >= 2:
+        flags.append("ベタつき記録が複数回。重い油分の重ねすぎを減らすと◎。")
+
     return {
-        "count": len(diaries),
+        "count": len(entries),
         "avg_sleep": avg_sleep,
         "avg_stress": avg_stress,
         "top_symptoms": top_symptoms,
-        "message": "簡易傾向メモを表示しています（診断ではありません）。"
+        "flags": flags,
+        "timeline": timeline,
     }
 
-
-# =========================
-# 症状テンプレ / ルーティン
-# =========================
-SYMPTOM_TEMPLATES = {
-    "乾燥": [
-        "洗いすぎを避ける（朝はぬるま湯のみも検討）",
-        "化粧水は“回数を分けて”やさしく重ねる",
-        "保湿美容液 → 乳液/クリームで水分を逃がしにくくする",
-        "香料・アルコールが強い日は使用点数を減らす",
-        "室内乾燥が強い日は加湿・温度調整もセットで"
-    ],
-    "赤み": [
-        "新規アイテムは1つずつ試す（同時導入しない）",
-        "摩擦を減らす（コットン・タオル圧を弱く）",
-        "無香料・低刺激を優先し、攻めケアは一旦お休み",
-        "しみる日は保湿中心に切り替える",
-        "赤みが強く続く/悪化する場合は皮膚科へ相談"
-    ],
-    "ベタつき": [
-        "皮脂が気になる日も保湿をゼロにしない",
-        "さっぱり化粧水＋軽めの保湿でバランスを取る",
-        "毛穴ケアはやりすぎ注意（乾燥で逆に皮脂が増えることも）",
-        "日中は皮脂取り紙より“軽くティッシュオフ”を優先",
-        "夜は落とし残しを避ける（やさしく丁寧に）"
-    ],
-}
-
-def build_routine(profile: dict):
-    skin_type = profile.get("skin_type", "未設定")
-    concerns = profile.get("concerns", [])
-    fragrance = profile.get("fragrance_pref", "未設定")
-    am_min = int(profile.get("am_minutes", 3))
-    pm_min = int(profile.get("pm_minutes", 10))
-
-    morning = []
-    night = []
-
-    # 朝
-    if am_min <= 3:
-        morning = ["洗顔（またはぬるま湯）", "化粧水", "保湿（乳液/ジェル）", "日焼け止め"]
-    elif am_min <= 7:
-        morning = ["洗顔", "化粧水", "美容液（1種）", "保湿", "日焼け止め"]
-    else:
-        morning = ["洗顔", "化粧水（2回に分けて）", "美容液（目的別1〜2種）", "保湿", "日焼け止め", "必要なら下地"]
-
-    # 夜
-    if pm_min <= 5:
-        night = ["クレンジング/洗顔", "化粧水", "保湿"]
-    elif pm_min <= 12:
-        night = ["クレンジング/洗顔", "化粧水", "美容液（1種）", "乳液/クリーム"]
-    else:
-        night = ["クレンジング", "洗顔", "化粧水", "美容液（整肌/毛穴など）", "保湿", "ポイントケア（必要時）"]
-
-    # 肌タイプ補正
-    if "乾燥" in skin_type:
-        morning.insert(min(2, len(morning)), "保湿美容液（しっとり系）")
-        night.insert(min(3, len(night)), "保湿美容液（セラミド/ヒアルロン酸系）")
-    if "脂性" in skin_type or "混合" in skin_type:
-        night.append("ベタつきやすい日はクリーム量を調整")
-    if "敏感" in skin_type:
-        morning.append("刺激を感じる日は手順を減らして保湿優先")
-        night.append("新規成分は毎日使わず様子見")
-
-    # 悩み補正
-    if "毛穴" in concerns:
-        night.append("毛穴ケア成分は週2〜3回から（やりすぎ注意）")
-    if "赤み" in concerns:
-        night.append("赤みがある日は攻めケアを休んで整肌中心")
-    if "乾燥" in concerns:
-        morning.append("日中乾燥する日はミストより保湿の見直し")
-    if "ベタつき" in concerns:
-        morning.append("ベタつく日も薄く保湿を入れてバランス調整")
-
-    # 香りの好み補正
-    notes = []
-    if fragrance == "無香料":
-        notes.append("無香料優先で選ぶと、赤み・刺激のリスク管理がしやすいです。")
-    elif fragrance == "香りありOK":
-        notes.append("香り付きOKでも、肌が揺らぐ日は無香料へ切り替えるのがおすすめです。")
-
-    return morning, night, notes
-
-
-# =========================
-# ローカル商品DB（柔軟対応）
-# =========================
-def fallback_products():
-    return [
-        {
-            "name": "うるおい化粧水（無香料）",
-            "category": "化粧水",
-            "price": 1500,
-            "skin_types": ["乾燥肌", "敏感肌", "混合肌"],
-            "concerns": ["乾燥", "赤み"],
-            "fragrance": "無香料",
-            "reason": "やさしい使用感を想定した保湿重視の基本アイテム"
-        },
-        {
-            "name": "バランシング美容液",
-            "category": "美容液",
-            "price": 2200,
-            "skin_types": ["混合肌", "脂性肌"],
-            "concerns": ["ベタつき", "毛穴"],
-            "fragrance": "無香料",
-            "reason": "皮脂バランスを意識した軽めの使い心地"
-        },
-        {
-            "name": "しっとり保湿クリーム",
-            "category": "クリーム",
-            "price": 2800,
-            "skin_types": ["乾燥肌", "敏感肌"],
-            "concerns": ["乾燥", "赤み"],
-            "fragrance": "無香料",
-            "reason": "乾燥しやすい日のフタ役として使いやすい"
-        },
-        {
-            "name": "軽やか乳液ジェル",
-            "category": "乳液",
-            "price": 1800,
-            "skin_types": ["混合肌", "脂性肌", "普通肌"],
-            "concerns": ["ベタつき"],
-            "fragrance": "香りありOK",
-            "reason": "重たくなりにくい保湿の中間アイテム"
-        },
-        {
-            "name": "やさしめ洗顔フォーム",
-            "category": "洗顔",
-            "price": 1200,
-            "skin_types": ["敏感肌", "混合肌", "普通肌"],
-            "concerns": ["赤み", "ベタつき"],
-            "fragrance": "無香料",
-            "reason": "洗いすぎを避けたい人向けのベースアイテム"
-        },
-    ]
-
-
-def normalize_product_item(item):
-    if not isinstance(item, dict):
-        return None
-    # よくあるキー揺れ吸収
-    name = item.get("name") or item.get("商品名") or item.get("title")
-    category = item.get("category") or item.get("カテゴリ") or "未分類"
-    price = item.get("price") or item.get("価格") or item.get("price_jpy") or 0
-    try:
-        price = int(price)
-    except Exception:
-        price = 0
-
-    skin_types = item.get("skin_types") or item.get("肌タイプ") or item.get("target_skin") or []
-    concerns = item.get("concerns") or item.get("悩み") or item.get("targets") or []
-    fragrance = item.get("fragrance") or item.get("香り") or ("無香料" if item.get("fragrance_free") else "未設定")
-    reason = item.get("reason") or item.get("おすすめ理由") or item.get("description") or "ローカルDB登録商品"
-
-    if isinstance(skin_types, str):
-        skin_types = re.split(r"[,，/・ ]+", skin_types.strip()) if skin_types.strip() else []
-    if isinstance(concerns, str):
-        concerns = re.split(r"[,，/・ ]+", concerns.strip()) if concerns.strip() else []
-
-    if not name:
-        return None
-
-    return {
-        "name": str(name),
-        "category": str(category),
-        "price": price,
-        "skin_types": [s for s in skin_types if s],
-        "concerns": [c for c in concerns if c],
-        "fragrance": str(fragrance),
-        "reason": str(reason),
-    }
-
-
-def load_products():
-    raw = load_json(PRODUCTS_FILE, [])
-    products = []
-
-    if isinstance(raw, list):
-        for x in raw:
-            p = normalize_product_item(x)
-            if p:
-                products.append(p)
-
-    if not products:
-        products = fallback_products()
-
-    return products
-
-
-def recommend_products(profile: dict, limit=6):
-    products = load_products()
+def generate_routine(profile):
     skin_type = profile.get("skin_type", "未設定")
     concerns = set(profile.get("concerns", []))
-    fragrance_pref = profile.get("fragrance_pref", "未設定")
+    fragrance = profile.get("fragrance", "無香料希望")
     budget = int(profile.get("budget", 5000))
+    am_min = int(profile.get("am_min", 3))
+    pm_min = int(profile.get("pm_min", 10))
 
-    ranked = []
-    for p in products:
-        score = 0
-        reasons = []
+    # 共通方針
+    style = []
+    if "敏感" in skin_type or "赤み" in concerns:
+        style.append("低刺激・摩擦少なめ")
+    if "乾燥" in concerns or "乾燥" in skin_type:
+        style.append("保湿重視")
+    if "ベタつき" in concerns or "脂性" in skin_type:
+        style.append("軽め保湿")
+    if "毛穴" in concerns:
+        style.append("部分ケアを少量")
+    if fragrance == "無香料希望":
+        style.append("無香料優先")
+    if budget <= 4000:
+        style.append("アイテム数は絞る")
+    if not style:
+        style.append("基本の保湿とUVを継続")
 
-        if p["price"] <= budget:
-            score += 3
-            reasons.append("予算内")
-        elif p["price"] <= budget * 1.2:
-            score += 1
-            reasons.append("予算に近い")
+    # 朝ルーティン
+    morning = []
+    # 時短設計
+    if am_min <= 3:
+        morning = [
+            ("洗顔/ぬるま湯", "0.5〜1分", "皮脂・汗を軽くリセット"),
+            ("化粧水", "0.5分", "水分補給"),
+            ("乳液 or ジェル", "0.5分", "うるおいキープ"),
+            ("日焼け止め", "1分", "日中の保護"),
+        ]
+    else:
+        morning = [
+            ("洗顔", "1分", "やさしく汚れオフ"),
+            ("化粧水", "1分", "水分補給"),
+            ("美容液（必要時）", "0.5〜1分", "悩みに合わせる"),
+            ("乳液/クリーム", "1分", "保湿のフタ"),
+            ("日焼け止め", "1分", "毎日固定"),
+        ]
 
-        if any(skin_type in s or s in skin_type for s in p["skin_types"]):
-            score += 3
-            reasons.append("肌タイプ相性")
+    # 夜ルーティン
+    if pm_min <= 6:
+        night = [
+            ("クレンジング/洗顔", "2分", "落とし残しを減らす"),
+            ("化粧水", "1分", "保湿の土台"),
+            ("乳液/クリーム", "2分", "保護"),
+        ]
+    else:
+        night = [
+            ("クレンジング", "2分", "メイク・UVオフ"),
+            ("洗顔", "1分", "やさしく仕上げ"),
+            ("化粧水", "1分", "水分補給"),
+            ("美容液（悩み別）", "1〜2分", "必要な時だけ"),
+            ("乳液/クリーム", "1〜2分", "保湿・保護"),
+        ]
+        if "乾燥" in concerns:
+            night.append(("乾燥部位に重ね保湿", "0.5分", "頬・口周り中心"))
+        if "赤み" in concerns:
+            night.append(("刺激ケアはお休み判断", "0.5分", "悪化時は攻めない"))
+        if "ベタつき" in concerns:
+            night.append(("Tゾーン量調整", "0.5分", "塗りすぎ防止"))
 
-        concern_matches = [c for c in p["concerns"] if c in concerns]
-        if concern_matches:
-            score += 2 + len(concern_matches)
-            reasons.append("悩み一致")
+    caution = []
+    if "赤み" in concerns:
+        caution.append("ピーリング/スクラブ/熱いお湯は控えめ")
+    if "乾燥" in concerns:
+        caution.append("洗いすぎ・拭き取りすぎ注意")
+    if "ベタつき" in concerns:
+        caution.append("重いクリームを全顔に塗りすぎない")
+    if not caution:
+        caution.append("新しいアイテムは一度に増やしすぎない")
 
-        if fragrance_pref == "無香料" and ("無香料" in p["fragrance"] or "fragrance_free" in p["fragrance"].lower()):
-            score += 2
-            reasons.append("無香料寄り")
-        elif fragrance_pref == "香りありOK":
-            score += 1  # 制約がゆるい
-
-        ranked.append((score, reasons, p))
-
-    ranked.sort(key=lambda x: (x[0], -x[2]["price"]), reverse=True)
-    return ranked[:limit]
-
-
-# =========================
-# セッション状態
-# =========================
-if "profile" not in st.session_state:
-    st.session_state.profile = {
-        "skin_type": "未設定",
-        "concerns": [],
-        "fragrance_pref": "未設定",
-        "budget": 5000,
-        "am_minutes": 3,
-        "pm_minutes": 10,
+    return {
+        "style": style,
+        "morning": morning,
+        "night": night,
+        "caution": caution
     }
 
-inject_ui_style()
-
-# =========================
-# サイドバー（プロフィール）
-# =========================
-with st.sidebar:
-    st.markdown(
-        """
-        <div class="sidebar-card">
-          <div class="sidebar-title">⚙️ プロフィール</div>
-          <div class="sidebar-desc">あなた向けに提案をやさしく最適化します</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    skin_type = st.selectbox(
-        "肌タイプ",
-        ["未設定", "乾燥肌", "脂性肌", "混合肌", "敏感肌", "普通肌"],
-        index=["未設定", "乾燥肌", "脂性肌", "混合肌", "敏感肌", "普通肌"].index(st.session_state.profile.get("skin_type", "未設定"))
-    )
-
-    concerns = st.multiselect(
-        "悩み",
-        ["乾燥", "赤み", "ベタつき", "毛穴", "くすみ", "ハリ不足"],
-        default=st.session_state.profile.get("concerns", [])
-    )
-
-    fragrance_pref = st.selectbox(
-        "香りの好み",
-        ["未設定", "無香料", "香りありOK"],
-        index=["未設定", "無香料", "香りありOK"].index(st.session_state.profile.get("fragrance_pref", "未設定"))
-    )
-
-    budget = st.number_input(
-        "月予算（円）",
-        min_value=500,
-        max_value=50000,
-        step=500,
-        value=int(st.session_state.profile.get("budget", 5000))
-    )
-
-    am_minutes = st.slider(
-        "朝ケア時間（分）",
-        min_value=1, max_value=20,
-        value=int(st.session_state.profile.get("am_minutes", 3))
-    )
-
-    pm_minutes = st.slider(
-        "夜ケア時間（分）",
-        min_value=3, max_value=30,
-        value=int(st.session_state.profile.get("pm_minutes", 10))
-    )
-
-    st.session_state.profile = {
-        "skin_type": skin_type,
-        "concerns": concerns,
-        "fragrance_pref": fragrance_pref,
-        "budget": budget,
-        "am_minutes": am_minutes,
-        "pm_minutes": pm_minutes,
+def symptom_templates():
+    return {
+        "乾燥": {
+            "point": "まず“水分＋保護”を優先。攻めのケアは一旦ひかえめ。",
+            "avoid": ["熱いお湯", "ゴシゴシ拭く", "角質ケアのやりすぎ"],
+            "morning": ["ぬるま湯 or やさしい洗顔", "化粧水", "乳液/クリーム", "日焼け止め"],
+            "night": ["クレンジング（必要時）", "やさしい洗顔", "化粧水", "美容液（保湿系）", "クリーム重ね"],
+            "tips": ["頬・口周りは重ね塗り", "空調の強い場所はミスト併用"]
+        },
+        "赤み": {
+            "point": "刺激を減らして“落ち着かせる”方向。シンプルケア優先。",
+            "avoid": ["香料が強いもの", "ピーリング系の多用", "摩擦", "高温のシャワー"],
+            "morning": ["ぬるま湯中心", "低刺激化粧水", "保湿", "日焼け止め"],
+            "night": ["やさしい洗浄", "低刺激保湿", "必要最低限のアイテム数"],
+            "tips": ["新規アイテムはパッチテスト", "赤みが強い/痛み/腫れは皮膚科へ"]
+        },
+        "ベタつき": {
+            "point": "“落としすぎない”＋“軽い保湿”がコツ。皮脂だけ狙い撃ちしない。",
+            "avoid": ["強すぎる洗浄の連発", "アルコール強めの使いすぎ", "重い油分の重ねすぎ"],
+            "morning": ["洗顔", "軽め化粧水", "ジェル/軽乳液", "日焼け止め"],
+            "night": ["クレンジング/洗顔", "化粧水", "必要なら美容液", "軽め保湿（Tゾーン量調整）"],
+            "tips": ["乾燥由来の皮脂増加もある", "ベタつく部位だけ量調整"]
+        },
     }
 
-    st.markdown('<div class="soft-line"></div>', unsafe_allow_html=True)
-    st.caption("※ このアプリはセルフケア補助（簡易）です。医療的診断ではありません。")
+def score_product(product, profile):
+    score = 0
+    reasons = []
 
+    skin = profile["skin_type"]
+    concerns = profile["concerns"]
+    fragrance = profile["fragrance"]
+    budget = profile["budget"]
 
-# =========================
-# ヘッダー（ヒーロー）
-# =========================
-profile = st.session_state.profile
-concerns_display = " / ".join(profile["concerns"]) if profile["concerns"] else "未設定"
+    if skin in product.get("skin_types", []):
+        score += 3
+        reasons.append("肌タイプ一致")
+    elif skin == "未設定":
+        score += 1
 
-st.markdown(
-    f"""
-    <div class="hero-card">
-      <div class="hero-badge">streamlitApp ・ ローカル保存対応</div>
-      <div class="hero-title">💄 Beauty Agent Local<br>女性向けセルフケアWeb版</div>
-      <div class="hero-sub">API不要 / ローカル保存 / 成分チェック・日記・傾向・ルーティン・症状別テンプレ・ローカル商品提案</div>
-      <div class="chips">
-        <span class="chip">肌タイプ: {profile["skin_type"]}</span>
-        <span class="chip">悩み: {concerns_display}</span>
-        <span class="chip">香り: {profile["fragrance_pref"]}</span>
-        <span class="chip">予算: ¥{profile["budget"]:,}</span>
-        <span class="chip">朝 {profile["am_minutes"]}分 / 夜 {profile["pm_minutes"]}分</span>
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+    matched_concerns = [c for c in concerns if c in product.get("concerns", [])]
+    if matched_concerns:
+        score += 2 * len(matched_concerns)
+        reasons.append(f"悩み一致: {'・'.join(matched_concerns)}")
 
-# 小さめのKPI風表示
-diaries = load_diaries()
-summary = summarize_diary(diaries)
-
-k1, k2, k3 = st.columns(3)
-with k1:
-    st.markdown(
-        f"""
-        <div class="metric-card">
-          <div class="metric-label">記録件数</div>
-          <div class="metric-value">{summary["count"]}件</div>
-          <div class="metric-sub">毎日1行でもOK</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-with k2:
-    avg_sleep_text = f'{summary["avg_sleep"]}時間' if summary["avg_sleep"] is not None else "未記録"
-    st.markdown(
-        f"""
-        <div class="metric-card">
-          <div class="metric-label">平均睡眠</div>
-          <div class="metric-value">{avg_sleep_text}</div>
-          <div class="metric-sub">肌のゆらぎと一緒に見やすい</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-with k3:
-    avg_stress_text = f'{summary["avg_stress"]}/5' if summary["avg_stress"] is not None else "未記録"
-    st.markdown(
-        f"""
-        <div class="metric-card">
-          <div class="metric-label">平均ストレス</div>
-          <div class="metric-value">{avg_stress_text}</div>
-          <div class="metric-sub">生活要因の振り返り用</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-st.write("")
-
-# =========================
-# タブ構成
-# =========================
-tabs = st.tabs([
-    "成分チェック",
-    "肌日記（保存/一覧）",
-    "傾向メモ",
-    "朝/夜ルーティン",
-    "症状別テンプレ",
-    "ローカル商品提案",
-])
-
-# -------------------------
-# 1. 成分チェック
-# -------------------------
-with tabs[0]:
-    st.markdown(
-        """
-        <div class="section-card">
-          <div class="section-title">成分チェック（ルールベース簡易）</div>
-          <div class="section-desc">成分を貼るだけで、香料・香料アレルゲン・乾燥しやすいアルコールなどをざっくり確認できます。</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    ing_text = st.text_area(
-        "成分を貼り付け（カンマ区切り / 改行OK）",
-        height=140,
-        placeholder="Water, Glycerin, Niacinamide, Fragrance, Limonene"
-    )
-
-    c1, c2 = st.columns([1, 5])
-    with c1:
-        run_check = st.button("チェックする")
-    with c2:
-        st.caption("※ 最終判断は製品ラベル・メーカー情報・専門家確認を優先してください。")
-
-    if run_check:
-        result = ingredient_check(ing_text)
-
-        st.markdown(
-            f"""
-            <div class="result-box">
-              <b>注意レベル:</b>
-              <span style="display:inline-block;margin-left:8px;padding:3px 10px;border-radius:999px;
-                           background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
-                           color:{result["level_color"]};font-weight:700;">
-                {result["level"]}
-              </span>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        if result["detected"]:
-            st.markdown("### 検出カテゴリ")
-            st.write(" / ".join(result["detected"]))
+    p_fragrance = product.get("fragrance", "無香料")
+    if fragrance == "無香料希望":
+        if p_fragrance == "無香料":
+            score += 3
+            reasons.append("無香料優先")
         else:
-            st.success("大きな注意カテゴリは検出されませんでした（簡易チェック）。")
+            score -= 2
+    elif fragrance == "香りありOK":
+        if p_fragrance == "香りあり":
+            score += 1
+            reasons.append("香りありOK")
+    else:
+        score += 1  # こだわらない
 
-        if result["cautions"]:
-            st.markdown("### 注意点")
-            for c in result["cautions"]:
-                st.markdown(f"- {c}")
+    price = int(product.get("price", 0))
+    if price <= budget:
+        score += 2
+        reasons.append("予算内")
+    else:
+        over = price - budget
+        if over <= 500:
+            score += 0
+            reasons.append("予算少し超え")
+        else:
+            score -= 3
 
-        if result["good_points"]:
-            st.markdown("### ポジティブポイント（検出成分）")
-            for g in result["good_points"]:
-                st.markdown(f"- {g}")
+    return score, reasons
 
-        st.markdown(
-            """
-            <div class="note-box">
-              <b>メモ:</b><br>
-              これはルールベースの簡易チェックです。肌状態が不安定な日は新規アイテムを増やしすぎず、まず保湿中心で様子を見るのがおすすめです。
-            </div>
-            """,
-            unsafe_allow_html=True
+def recommend_products(profile, products, selected_category="すべて"):
+    scored = []
+    for p in products:
+        if selected_category != "すべて" and p.get("category") != selected_category:
+            continue
+        score, reasons = score_product(p, profile)
+        if score >= 1:
+            scored.append((score, reasons, p))
+    scored.sort(key=lambda x: (x[0], -int(x[2].get("price", 0))), reverse=True)
+    return scored
+
+# =========================================================
+# アプリ本体
+# =========================================================
+def main():
+    inject_ui_style()
+
+    # セッション初期値
+    if "skin_type" not in st.session_state:
+        st.session_state.skin_type = "未設定"
+    if "concerns" not in st.session_state:
+        st.session_state.concerns = []
+    if "fragrance_pref" not in st.session_state:
+        st.session_state.fragrance_pref = "無香料希望"
+    if "budget" not in st.session_state:
+        st.session_state.budget = 5000
+    if "am_min" not in st.session_state:
+        st.session_state.am_min = 3
+    if "pm_min" not in st.session_state:
+        st.session_state.pm_min = 10
+
+    diary_entries = load_diary_entries()
+    trend = build_trend_summary(diary_entries)
+
+    # ---------------- Sidebar ----------------
+    with st.sidebar:
+        st.markdown("""
+        <div class="side-card">
+          <div class="side-card-title">⚙️ プロフィール</div>
+          <div class="side-card-sub">あなた向けに提案をやさしく最適化します</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.session_state.skin_type = st.selectbox(
+            "肌タイプ",
+            ["未設定", "乾燥", "脂性", "混合", "普通", "敏感"],
+            index=["未設定", "乾燥", "脂性", "混合", "普通", "敏感"].index(st.session_state.skin_type)
+            if st.session_state.skin_type in ["未設定", "乾燥", "脂性", "混合", "普通", "敏感"] else 0
         )
 
-
-# -------------------------
-# 2. 肌日記
-# -------------------------
-with tabs[1]:
-    st.markdown(
-        """
-        <div class="section-card">
-          <div class="section-title">肌日記（保存 / 一覧）</div>
-          <div class="section-desc">その日の肌状態と生活要因を記録。あとから「なんで荒れた？」の振り返りがしやすくなります。</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    with st.form("diary_form", clear_on_submit=False):
-        col_a, col_b = st.columns(2)
-        with col_a:
-            diary_date = st.date_input("日付", datetime.now().date())
-            symptoms = st.multiselect("症状", ["乾燥", "赤み", "ベタつき", "毛穴目立ち", "ヒリつき", "ニキビ", "くすみ"])
-            sleep_hours = st.slider("睡眠時間（時間）", 0.0, 12.0, 6.0, 0.5)
-        with col_b:
-            stress = st.slider("ストレス（1〜5）", 1, 5, 3)
-            used_items = st.text_input("使ったもの（例: 化粧水 / 美容液 / クリーム）", "")
-            note = st.text_area("メモ", height=110, placeholder="例）今日は赤み少し。乾燥あり。新しい美容液を使った。")
-
-        submitted = st.form_submit_button("日記を保存する")
-
-    if submitted:
-        entry = {
-            "date": str(diary_date),
-            "symptoms": symptoms,
-            "sleep_hours": sleep_hours,
-            "stress": stress,
-            "used_items": [x.strip() for x in re.split(r"[,，/・]+", used_items) if x.strip()],
-            "note": note.strip(),
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-        }
-        save_diary(entry)
-        st.success("日記を保存しました ✅")
-
-    st.markdown("### 一覧（新しい順）")
-    diaries = load_diaries()
-
-    if not diaries:
-        st.info("日記はまだありません。まずは1件記録してみましょう。")
-    else:
-        # 表示件数
-        view_count = st.selectbox("表示件数", [5, 10, 20, 50], index=1)
-        for d in diaries[:view_count]:
-            symptoms_html = "".join([f'<span class="diary-tag">{s}</span>' for s in d.get("symptoms", [])])
-            used_html = " / ".join(d.get("used_items", [])) if d.get("used_items") else "未記載"
-            note_text = d.get("note", "").replace("<", "＜").replace(">", "＞")
-            st.markdown(
-                f"""
-                <div class="diary-card">
-                  <div class="diary-date">🗓️ {d.get("date", "日付未設定")}</div>
-                  <div class="diary-meta">睡眠: {d.get("sleep_hours", "-")}時間 / ストレス: {d.get("stress", "-")}/5 / 使用: {used_html}</div>
-                  <div>{note_text if note_text else "メモなし"}</div>
-                  <div class="diary-tags">{symptoms_html}</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-
-# -------------------------
-# 3. 傾向メモ
-# -------------------------
-with tabs[2]:
-    st.markdown(
-        """
-        <div class="section-card">
-          <div class="section-title">傾向メモ（簡易）</div>
-          <div class="section-desc">保存した肌日記から、睡眠・ストレス・症状の出やすさをざっくり表示します。</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    diaries = load_diaries()
-    summary = summarize_diary(diaries)
-
-    if summary["count"] == 0:
-        st.info("日記データはまだありません。先に「肌日記」タブで記録してください。")
-    else:
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                  <div class="metric-label">平均睡眠</div>
-                  <div class="metric-value">{summary["avg_sleep"] if summary["avg_sleep"] is not None else "未記録"}{"時間" if summary["avg_sleep"] is not None else ""}</div>
-                  <div class="metric-sub">記録 {summary["count"]}件</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-        with c2:
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                  <div class="metric-label">平均ストレス</div>
-                  <div class="metric-value">{summary["avg_stress"] if summary["avg_stress"] is not None else "未記録"}{" /5" if summary["avg_stress"] is not None else ""}</div>
-                  <div class="metric-sub">生活要因の振り返り用</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-        with c3:
-            top1 = summary["top_symptoms"][0][0] if summary["top_symptoms"] else "未記録"
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                  <div class="metric-label">よく出る症状</div>
-                  <div class="metric-value">{top1}</div>
-                  <div class="metric-sub">簡易集計</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-        st.markdown("### 簡易傾向メモ")
-        st.markdown(f"- {summary['message']}")
-        if summary["top_symptoms"]:
-            symptom_line = " / ".join([f"{k}({v})" for k, v in summary["top_symptoms"]])
-            st.markdown(f"- よく出る症状: {symptom_line}")
-
-        # ゆるいアドバイス
-        if summary["avg_sleep"] is not None and summary["avg_sleep"] < 6:
-            st.markdown("- 平均睡眠がやや短め。肌が揺らぐ時期は、まず保湿と休息を優先すると安定しやすいです。")
-        if summary["avg_stress"] is not None and summary["avg_stress"] >= 4:
-            st.markdown("- ストレスが高めの記録が多いです。新規アイテム追加より“今のケアをシンプルに整える”方が相性が良い日もあります。")
-        if any(s in ["赤み", "ヒリつき"] for s, _ in summary["top_symptoms"]):
-            st.markdown("- 赤み/ヒリつきが目立つ時は、香りや刺激が強いものを一時的に減らして様子を見るのがおすすめです。")
-
-        st.markdown(
-            """
-            <div class="warn-box">
-              強い赤み・痛み・腫れ・化膿・急な悪化がある場合は、セルフケアだけで判断せず皮膚科へ相談してください。
-            </div>
-            """,
-            unsafe_allow_html=True
+        concern_options = ["乾燥", "赤み", "ベタつき", "毛穴", "くすみ", "ニキビ", "ゆらぎ"]
+        st.session_state.concerns = st.multiselect(
+            "悩み",
+            concern_options,
+            default=[c for c in st.session_state.concerns if c in concern_options],
+            placeholder="Choose options"
         )
 
+        st.session_state.fragrance_pref = st.selectbox(
+            "香りの好み",
+            ["無香料希望", "こだわらない", "香りありOK"],
+            index=["無香料希望", "こだわらない", "香りありOK"].index(st.session_state.fragrance_pref)
+            if st.session_state.fragrance_pref in ["無香料希望", "こだわらない", "香りありOK"] else 0
+        )
 
-# -------------------------
-# 4. 朝/夜ルーティン
-# -------------------------
-with tabs[3]:
-    st.markdown(
-        """
-        <div class="section-card">
-          <div class="section-title">朝 / 夜ルーティン自動作成（ローカル）</div>
-          <div class="section-desc">プロフィールに合わせて、続けやすい手順をシンプルに提案します。忙しい日でも回せる構成を優先。</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        st.session_state.budget = int(st.number_input(
+            "月予算（円）",
+            min_value=0, max_value=50000, value=int(st.session_state.budget), step=500
+        ))
 
-    morning, night, notes = build_routine(profile)
+        st.session_state.am_min = int(st.slider("朝ケア時間（分）", 1, 20, int(st.session_state.am_min)))
+        st.session_state.pm_min = int(st.slider("夜ケア時間（分）", 1, 30, int(st.session_state.pm_min)))
 
-    c1, c2 = st.columns(2)
+        st.markdown("---")
+        st.caption("※ ローカル保存のため、Streamlit Cloudでは再起動時にデータが消える場合があります。")
+
+    profile = {
+        "skin_type": st.session_state.skin_type,
+        "concerns": st.session_state.concerns,
+        "fragrance": st.session_state.fragrance_pref,
+        "budget": st.session_state.budget,
+        "am_min": st.session_state.am_min,
+        "pm_min": st.session_state.pm_min,
+    }
+
+    # ---------------- Main Header ----------------
+    ui_hero(profile)
+
+    c1, c2, c3 = st.columns(3)
     with c1:
-        st.markdown("### 🌤 朝ルーティン")
-        for i, step in enumerate(morning, 1):
-            st.markdown(f"{i}. {step}")
+        ui_metric_card("記録件数", f"{trend['count']}件", "毎日1行でもOK")
     with c2:
-        st.markdown("### 🌙 夜ルーティン")
-        for i, step in enumerate(night, 1):
-            st.markdown(f"{i}. {step}")
+        ui_metric_card("平均睡眠", f"{trend['avg_sleep']}時間" if trend["avg_sleep"] is not None else "未記録", "肌のゆらぎと一緒に見やすい")
+    with c3:
+        ui_metric_card("平均ストレス", f"{trend['avg_stress']}/5" if trend["avg_stress"] is not None else "未記録", "生活要因の振り返り用")
 
-    st.markdown("### ひとことアドバイス")
-    if notes:
-        for n in notes:
-            st.markdown(f"- {n}")
-    else:
-        st.markdown("- 肌が揺らぐ日は、手順を増やすより“しみない・続けられる”を優先すると安定しやすいです。")
+    tabs = st.tabs([
+        "成分チェック",
+        "肌日記（保存/一覧）",
+        "傾向メモ",
+        "朝/夜ルーティン",
+        "症状別テンプレ",
+        "ローカル商品提案"
+    ])
 
-    st.markdown(
-        """
-        <div class="note-box">
-          <b>コツ:</b> 新しい美容液を入れる日は、他の条件（洗顔・保湿・生活リズム）をなるべく固定すると相性判断がしやすくなります。
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-# -------------------------
-# 5. 症状別テンプレ
-# -------------------------
-with tabs[4]:
-    st.markdown(
-        """
-        <div class="section-card">
-          <div class="section-title">症状別テンプレ提案（乾燥 / 赤み / ベタつき）</div>
-          <div class="section-desc">“今日はこれ気になる”に合わせて、やることをすぐ確認できるチェックリストです。</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    symptom_choice = st.radio("気になる症状を選ぶ", ["乾燥", "赤み", "ベタつき"], horizontal=True)
-
-    st.markdown(f"### {symptom_choice}の日のケア指針")
-    for i, item in enumerate(SYMPTOM_TEMPLATES[symptom_choice], 1):
-        st.markdown(f"{i}. {item}")
-
-    if symptom_choice == "赤み":
-        st.markdown(
-            """
-            <div class="warn-box">
-              赤みが強い / 熱感がある / 触ると痛い / 長引く場合は、早めに皮膚科相談を。
-            </div>
-            """,
-            unsafe_allow_html=True
+    # =====================================================
+    # 1) 成分チェック
+    # =====================================================
+    with tabs[0]:
+        ui_section_start(
+            "成分チェック（ルールベース簡易）",
+            "成分を貼るだけで、香料・香料アレルゲン・乾燥しやすいアルコールなどをざっくり確認できます。"
         )
 
+        ing_text = st.text_area(
+            "成分を貼り付け（カンマ区切り / 改行OK）",
+            value="",
+            placeholder="Water, Glycerin, Niacinamide, Fragrance, Limonene",
+            height=140,
+            key="ing_text_area",
+            label_visibility="collapsed"
+        )
 
-# -------------------------
-# 6. ローカル商品提案
-# -------------------------
-with tabs[5]:
-    st.markdown(
-        """
-        <div class="section-card">
-          <div class="section-title">ローカル商品提案（DBベース）</div>
-          <div class="section-desc">登録しているローカル商品DBから、肌タイプ・悩み・予算・香りの好みに合わせて候補を提案します。</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        col_btn1, col_btn2 = st.columns([1, 4])
+        with col_btn1:
+            run_check = st.button("チェックする", use_container_width=True, key="btn_check_ingredients")
 
-    st.caption("※ 外部API検索ではなく、ローカルDB（products_local.json）を利用します。")
-    recs = recommend_products(profile, limit=6)
+        if run_check:
+            items = parse_ingredients(ing_text)
+            if not items:
+                st.warning("成分を入力してからチェックしてね。")
+            else:
+                result = ingredient_check(items)
 
-    if not recs:
-        st.info("商品DBが空です。`beauty_agent_data/products_local.json` を確認してください。")
-    else:
-        cols = st.columns(2)
-        for idx, (score, reasons, p) in enumerate(recs):
-            with cols[idx % 2]:
-                reasons_text = " / ".join(reasons) if reasons else "条件に近い"
+                if result["summary_categories"]:
+                    st.markdown(
+                        f"""
+                        <div class="result-card">
+                          <div class="result-title">要点</div>
+                          <div class="soft-note">検出カテゴリ → {' / '.join(result['summary_categories'])}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.success("大きな注意カテゴリは少なめです（ルールベース判定）。")
+
+                for category, hits in result["hits"].items():
+                    if hits:
+                        st.markdown(
+                            f'<div class="result-card"><div class="result-title">{category}</div></div>',
+                            unsafe_allow_html=True
+                        )
+                        st.write("・" + "\n・".join(hits))
+
+                st.markdown("### 注意点")
+                for n in result["notes"]:
+                    st.write(f"- {n}")
+
+                st.caption("※ これはルールベースの簡易チェックです。最終判断は製品ラベル・メーカー情報・専門家確認を優先。")
+
+        ui_section_end()
+
+    # =====================================================
+    # 2) 肌日記（保存/一覧）
+    # =====================================================
+    with tabs[1]:
+        sub_tabs = st.tabs(["保存", "一覧"])
+
+        # --- 保存 ---
+        with sub_tabs[0]:
+            ui_section_start(
+                "肌日記を保存",
+                "睡眠・ストレス・症状・使ったものを記録して、傾向を見やすくします。"
+            )
+
+            with st.form("diary_form", clear_on_submit=False):
+                d_col1, d_col2 = st.columns([1, 1])
+                with d_col1:
+                    diary_date = st.date_input("日付", value=date.today())
+                with d_col2:
+                    cycle = st.selectbox("体調メモ（任意）", ["未設定", "通常", "疲れ気味", "生理前/中", "寝不足", "外出多め"])
+
+                symptoms = st.multiselect(
+                    "症状（複数OK）",
+                    ["乾燥", "赤み", "ベタつき", "毛穴", "ニキビ", "かゆみ", "ヒリつき", "くすみ"],
+                    default=[]
+                )
+
+                c_sleep, c_stress = st.columns(2)
+                with c_sleep:
+                    sleep_hours = st.slider("睡眠（時間）", 0.0, 12.0, 6.0, 0.5)
+                with c_stress:
+                    stress = st.slider("ストレス（1〜5）", 1, 5, 3)
+
+                products_used = st.text_input("使用したもの（任意）", placeholder="例：化粧水、美容液、日焼け止め")
+                notes = st.text_area("メモ（任意）", placeholder="例：今日は乾燥しやすく、頬が少し赤かった", height=90)
+
+                saved = st.form_submit_button("日記を保存", use_container_width=True)
+
+            if saved:
+                entry = {
+                    "date": str(diary_date),
+                    "cycle": cycle,
+                    "symptoms": symptoms,
+                    "sleep_hours": float(sleep_hours),
+                    "stress": int(stress),
+                    "products_used": products_used.strip(),
+                    "notes": notes.strip(),
+                    "created_at": datetime.now().isoformat(timespec="seconds"),
+                }
+                add_diary_entry(entry)
+                st.success("日記を保存しました。")
+                st.rerun()
+
+            ui_section_end()
+
+        # --- 一覧 ---
+        with sub_tabs[1]:
+            ui_section_start(
+                "日記一覧",
+                "保存した記録を確認・削除できます。"
+            )
+
+            entries = load_diary_entries()
+            if not entries:
+                st.info("日記はまだありません。")
+            else:
+                for i, e in enumerate(entries):
+                    symptoms_txt = " / ".join(e.get("symptoms", [])) if e.get("symptoms") else "なし"
+                    st.markdown(
+                        f"""
+                        <div class="result-card">
+                          <div class="result-title">📅 {e.get('date','-')}　|　症状: {symptoms_txt}</div>
+                          <div class="soft-note">
+                            睡眠: {e.get('sleep_hours','-')}時間 / ストレス: {e.get('stress','-')}/5 / 体調メモ: {e.get('cycle','未設定')}
+                          </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                    if e.get("products_used"):
+                        st.write(f"**使用**: {e.get('products_used')}")
+                    if e.get("notes"):
+                        st.write(f"**メモ**: {e.get('notes')}")
+                    cdel1, cdel2 = st.columns([1, 6])
+                    with cdel1:
+                        if st.button("削除", key=f"del_{i}"):
+                            delete_diary_entry(i)
+                            st.success("削除しました。")
+                            st.rerun()
+                    st.markdown("---")
+
+                # バックアップDL
+                st.download_button(
+                    "日記データをJSONでダウンロード",
+                    data=json.dumps(entries, ensure_ascii=False, indent=2),
+                    file_name="beauty_diary_backup.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
+
+            ui_section_end()
+
+    # =====================================================
+    # 3) 傾向メモ
+    # =====================================================
+    with tabs[2]:
+        ui_section_start(
+            "簡易傾向メモ",
+            "記録から、睡眠・ストレス・よく出る症状をざっくり把握します。"
+        )
+
+        entries = load_diary_entries()
+        trend = build_trend_summary(entries)
+
+        if trend["count"] == 0:
+            st.info("日記データはまだありません。まずは1件保存してみてね。")
+        else:
+            st.markdown("### サマリー")
+            st.write(f"- 記録件数: **{trend['count']}件**")
+            st.write(f"- 平均睡眠: **{trend['avg_sleep']}時間**" if trend["avg_sleep"] is not None else "- 平均睡眠: 未記録")
+            st.write(f"- 平均ストレス: **{trend['avg_stress']}/5**" if trend["avg_stress"] is not None else "- 平均ストレス: 未記録")
+
+            if trend["top_symptoms"]:
+                top_text = " / ".join([f"{name}({cnt})" for name, cnt in trend["top_symptoms"][:5]])
+                st.write(f"- よく出る症状: {top_text}")
+            else:
+                st.write("- よく出る症状: まだ記録なし")
+
+            if trend["flags"]:
+                st.markdown("### 見立てメモ（簡易）")
+                for f in trend["flags"]:
+                    st.write(f"- {f}")
+
+            if trend["timeline"]:
+                st.markdown("### 記録の時系列（表）")
+                st.dataframe(trend["timeline"], use_container_width=True)
+
+        ui_section_end()
+
+    # =====================================================
+    # 4) 朝/夜ルーティン
+    # =====================================================
+    with tabs[3]:
+        ui_section_start(
+            "朝/夜ルーティン自動作成（ローカル）",
+            "プロフィールに合わせて、時短も考慮した無理のないルーティンを提案します。"
+        )
+
+        routine = generate_routine(profile)
+
+        st.markdown("### 提案の方向性")
+        for s in routine["style"]:
+            st.write(f"- {s}")
+
+        col_am, col_pm = st.columns(2)
+
+        with col_am:
+            st.markdown("### ☀️ 朝ルーティン")
+            for step, minutes, purpose in routine["morning"]:
                 st.markdown(
                     f"""
-                    <div class="product-card">
-                      <div class="product-name">🧴 {p["name"]}</div>
-                      <div class="product-meta">カテゴリ: {p["category"]} / 目安価格: ¥{p["price"]:,} / 香り: {p["fragrance"]}</div>
-                      <div class="product-reason"><b>おすすめ理由:</b> {p["reason"]}</div>
-                      <div class="diary-tags" style="margin-top:8px;">
-                        <span class="diary-tag">スコア {score}</span>
-                        <span class="diary-tag">{reasons_text}</span>
-                      </div>
+                    <div class="result-card">
+                      <div class="result-title">{step} <span style="font-size:.85rem;color:#B8BED0;">（{minutes}）</span></div>
+                      <div class="soft-note">{purpose}</div>
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
 
-    st.markdown(
-        """
-        <div class="note-box">
-          <b>DB拡張メモ:</b> products_local.json に商品を追加すると、提案の幅が広がります。<br>
-          例キー: name / category / price / skin_types / concerns / fragrance / reason
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        with col_pm:
+            st.markdown("### 🌙 夜ルーティン")
+            for step, minutes, purpose in routine["night"]:
+                st.markdown(
+                    f"""
+                    <div class="result-card">
+                      <div class="result-title">{step} <span style="font-size:.85rem;color:#B8BED0;">（{minutes}）</span></div>
+                      <div class="soft-note">{purpose}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
-# フッター
-st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-st.caption("Beauty Agent Local（オフライン簡易モードWeb版）｜セルフケア補助アプリ")
+        st.markdown("### 注意ポイント")
+        for c in routine["caution"]:
+            st.write(f"- {c}")
+
+        ui_section_end()
+
+    # =====================================================
+    # 5) 症状別テンプレ
+    # =====================================================
+    with tabs[4]:
+        ui_section_start(
+            "症状別テンプレ提案（乾燥 / 赤み / ベタつき）",
+            "今日の症状に合わせて、考え方・避けたいこと・朝夜の流れを確認できます。"
+        )
+
+        tpls = symptom_templates()
+        selected = st.multiselect(
+            "症状を選択（複数OK）",
+            ["乾燥", "赤み", "ベタつき"],
+            default=profile["concerns"] if profile["concerns"] else []
+        )
+
+        if not selected:
+            st.info("症状を選ぶとテンプレを表示します。")
+        else:
+            for s in selected:
+                t = tpls[s]
+                st.markdown(
+                    f"""
+                    <div class="result-card">
+                      <div class="result-title">🩺 {s} テンプレ</div>
+                      <div class="soft-note">{t['point']}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("**朝**")
+                    for x in t["morning"]:
+                        st.write(f"- {x}")
+                    st.markdown("**避けたいこと**")
+                    for x in t["avoid"]:
+                        st.write(f"- {x}")
+                with c2:
+                    st.markdown("**夜**")
+                    for x in t["night"]:
+                        st.write(f"- {x}")
+                    st.markdown("**コツ**")
+                    for x in t["tips"]:
+                        st.write(f"- {x}")
+
+                st.markdown("---")
+
+            st.warning("強い赤み・痛み・腫れ・化膿・急な悪化がある場合は皮膚科へ。")
+
+        ui_section_end()
+
+    # =====================================================
+    # 6) ローカル商品提案
+    # =====================================================
+    with tabs[5]:
+        ui_section_start(
+            "ローカル商品提案（サンプルDB）",
+            "プロフィールに合わせてローカルJSONから候補を提案します。実在商品名に差し替えればそのまま使えます。"
+        )
+
+        products = load_json(PRODUCTS_FILE, [])
+        if not products:
+            st.info("ローカル商品DBが空です。beauty_agent_data/products_local.json を確認してね。")
+            ui_section_end()
+        else:
+            categories = ["すべて"] + sorted(list({p.get("category", "その他") for p in products}))
+            selected_category = st.selectbox("カテゴリで絞る", categories)
+
+            recs = recommend_products(profile, products, selected_category=selected_category)
+
+            if not recs:
+                st.info("条件に合う候補が少ないです。香り/予算/カテゴリをゆるめると出やすいです。")
+            else:
+                st.markdown(f"### おすすめ候補（{min(len(recs), 8)}件表示）")
+                for score, reasons, p in recs[:8]:
+                    pills = ""
+                    for ft in p.get("features", []):
+                        pills += f'<span class="pill">{ft}</span>'
+                    reason_pills = ""
+                    for r in reasons:
+                        reason_pills += f'<span class="pill">{r}</span>'
+
+                    st.markdown(
+                        f"""
+                        <div class="product-card">
+                          <div class="product-name">{p.get('name','-')}</div>
+                          <div class="product-meta">
+                            {p.get('category','-')} / ¥{int(p.get('price',0)):,} / 香り: {p.get('fragrance','-')} / スコア: {score}
+                          </div>
+                          <div style="margin-bottom:8px;">{pills}</div>
+                          <div class="soft-note" style="margin-bottom:8px;">{p.get('description','')}</div>
+                          <div>{reason_pills}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+            with st.expander("ローカル商品DBの使い方（編集ポイント）"):
+                st.code(
+                    """beauty_agent_data/products_local.json を編集すれば、あなた用の商品候補に差し替えできます。
+
+主な項目:
+- name: 商品名
+- category: 化粧水 / 美容液 / 乳液 / クリーム / 洗顔 / 日焼け止め など
+- price: 価格
+- skin_types: 対応肌タイプ一覧
+- concerns: 対応悩み一覧
+- fragrance: 無香料 / 香りあり
+- features: 表示用タグ
+- description: 説明文""",
+                    language="text"
+                )
+
+        ui_section_end()
+
+    # footer
+    st.markdown("---")
+    st.caption("Beauty Agent Local（オフライン簡易モード） / 成分チェックはルールベースの補助判定です。")
+
+if __name__ == "__main__":
+    main()
